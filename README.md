@@ -1,6 +1,6 @@
 # AuditX - Analiz Denetim ve Raporlama Sistemi
 
-AuditX, Excel formatındaki denetim verilerini analiz eden ve görselleştiren modern bir web uygulamasıdır. Özellikle THY standartlarına uygun denetim süreçleri için optimize edilmiştir.
+AuditX, Excel formatındaki denetim verilerini analiz eden ve görselleştiren modern bir web uygulamasıdır.
 
 ## 🚀 Özellikler
 
