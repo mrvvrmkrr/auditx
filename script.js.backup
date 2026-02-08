@@ -1,0 +1,567 @@
+document.addEventListener('DOMContentLoaded', () => {
+    const dropZone = document.getElementById('drop-zone');
+    const fileInput = document.getElementById('file-input');
+    const browseBtn = document.getElementById('browse-btn');
+    const fileSelectedInfo = document.getElementById('file-selected-info');
+    const selectedFilename = document.getElementById('selected-filename');
+    const selectedFilesize = document.getElementById('selected-filesize');
+    const nextToDepartmentBtn = document.getElementById('next-to-department');
+    const backToUploadBtn = document.getElementById('back-to-upload');
+    const backToDepartmentBtn = document.getElementById('back-to-department');
+    const newReportBtn = document.getElementById('new-report');
+    const departmentSelect = document.getElementById('department-select');
+    const departmentInfo = document.getElementById('department-info');
+    const selectedDepartmentName = document.getElementById('selected-department-name');
+    const columnCount = document.getElementById('column-count');
+    const configureReportBtn = document.getElementById('configure-report-btn');
+
+    let workbookSheets = {}; // { sheetName: { columns: [], data: [] } }
+    let currentPage = 1;
+
+    // Wizard navigation functions
+    function goToPage(pageNumber) {
+        // Hide all pages
+        document.querySelectorAll('.wizard-page').forEach(page => page.classList.remove('active'));
+
+        // Show target page
+        document.getElementById(`page-${pageNumber}`).classList.add('active');
+
+        // Update progress steps
+        document.querySelectorAll('.step').forEach((step, index) => {
+            step.classList.remove('active', 'completed');
+            if (index + 1 < pageNumber) {
+                step.classList.add('completed');
+            } else if (index + 1 === pageNumber) {
+                step.classList.add('active');
+            }
+        });
+
+        currentPage = pageNumber;
+    }
+
+    // Trigger file input on click
+    browseBtn.addEventListener('click', () => {
+        fileInput.click();
+    });
+
+    // Handle file selection
+    fileInput.addEventListener('change', (e) => {
+        handleFiles(e.target.files);
+    });
+
+    // Drag and Drop Events
+    dropZone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        dropZone.style.borderColor = 'rgba(199, 10, 12, 0.8)';
+        dropZone.style.background = 'rgba(199, 10, 12, 0.05)';
+    });
+
+    dropZone.addEventListener('dragleave', () => {
+        dropZone.style.borderColor = '';
+        dropZone.style.background = '';
+    });
+
+    dropZone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dropZone.style.borderColor = '';
+        dropZone.style.background = '';
+
+        const files = e.dataTransfer.files;
+        handleFiles(files);
+    });
+
+    function handleFiles(files) {
+        if (files.length > 0) {
+            const file = files[0];
+            const extension = file.name.split('.').pop().toLowerCase();
+            const allowed = ['xlsx', 'xls', 'csv'];
+
+            if (!allowed.includes(extension)) {
+                alert('Lütfen geçerli bir Excel (.xlsx, .xls) veya CSV dosyası yükleyin.');
+                return;
+            }
+
+            // Read file
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                try {
+                    const data = new Uint8Array(e.target.result);
+                    const workbook = XLSX.read(data, { type: 'array' });
+
+                    console.log('Workbook yüklendi:', workbook.SheetNames);
+
+                    if (workbook.SheetNames.length === 0) {
+                        alert('Excel dosyasında sayfa bulunamadı.');
+                        return;
+                    }
+
+                    // Tüm sayfaları işle (her sayfa = bir müdürlük)
+                    workbookSheets = {};
+                    workbook.SheetNames.forEach(sheetName => {
+                        const sheet = workbook.Sheets[sheetName];
+                        const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+
+                        // Boş olmayan ilk satırı bul (header)
+                        let headerRow = null;
+                        for (let i = 0; i < rows.length; i++) {
+                            const row = rows[i];
+                            const hasContent = row.some(cell => cell !== null && cell !== undefined && cell !== '');
+                            if (hasContent) {
+                                headerRow = row.filter(cell => cell !== null && cell !== undefined && cell !== '');
+                                break;
+                            }
+                        }
+
+                        if (headerRow && headerRow.length > 0) {
+                            const jsonData = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+                            workbookSheets[sheetName] = {
+                                columns: headerRow,
+                                data: jsonData
+                            };
+                        }
+                    });
+
+                    console.log('İşlenmiş müdürlükler:', Object.keys(workbookSheets));
+                    populateDepartmentSelector();
+
+                } catch (err) {
+                    console.error('Hata oluştu:', err);
+                    alert('Dosya okunurken bir hata oluştu: ' + err.message);
+                }
+            };
+            reader.onerror = (err) => {
+                console.error('FileReader hatası:', err);
+            };
+            reader.readAsArrayBuffer(file);
+        }
+    }
+
+    function populateDepartmentSelector() {
+        const resultsContainer = document.getElementById('results-container');
+        departmentSelect.innerHTML = '<option value="">-- Müdürlük Seçin --</option>';
+
+        Object.keys(workbookSheets).forEach(sheetName => {
+            const option = document.createElement('option');
+            option.value = sheetName;
+            option.textContent = sheetName;
+            departmentSelect.appendChild(option);
+        });
+
+        resultsContainer.classList.remove('hidden');
+    }
+
+    // Department selection handler
+    departmentSelect.addEventListener('change', (e) => {
+        const selectedDepartment = e.target.value;
+
+        if (!selectedDepartment) {
+            departmentInfo.classList.add('hidden');
+            return;
+        }
+
+        const deptData = workbookSheets[selectedDepartment];
+        if (!deptData) return;
+
+        // Update UI
+        selectedDepartmentName.textContent = selectedDepartment;
+        columnCount.textContent = `Tespit edilen kolon sayısı: ${deptData.columns.length}`;
+
+        departmentInfo.classList.remove('hidden');
+    });
+
+    // Report configuration button
+    configureReportBtn.addEventListener('click', () => {
+        const selectedDepartment = departmentSelect.value;
+        if (!selectedDepartment) {
+            alert('Lütfen önce bir müdürlük seçin.');
+            return;
+        }
+
+        const deptData = workbookSheets[selectedDepartment];
+        if (!deptData) return;
+
+        // Rapor oluştur
+        generateReport(selectedDepartment, deptData);
+    });
+
+    function generateReport(departmentName, deptData) {
+        const reportResults = document.getElementById('report-results');
+        const reportDepartmentName = document.getElementById('report-department-name');
+
+        reportDepartmentName.textContent = `Müdürlük: ${departmentName}`;
+
+        console.log('Tüm kolonlar:', deptData.columns);
+        console.log('İlk 3 veri satırı:', deptData.data.slice(0, 3));
+
+        // O, P, Q kolonlarını bul - önce indeks olarak dene
+        let columnO = deptData.columns[14]; // O = 15. kolon (0-indexed: 14)
+        let columnP = deptData.columns[15]; // P = 16. kolon (0-indexed: 15)
+        let columnQ = deptData.columns[16]; // Q = 17. kolon (0-indexed: 16)
+
+        // Eğer bulunamazsa, anahtar kelimeyle ara
+        if (!columnO) {
+            columnO = findColumnByKeyword(deptData.columns, ['format', 'uygunluk']);
+        }
+        if (!columnP) {
+            columnP = findColumnByKeyword(deptData.columns, ['olgunluk', 'içerik']);
+        }
+        if (!columnQ) {
+            columnQ = findColumnByKeyword(deptData.columns, ['neden', 'sebep']);
+        }
+
+        // Back to analyze kolonlarını bul
+        const columnTestBack = findColumnByKeyword(deptData.columns, ['back to analyze count for test', 'test']);
+        const columnDevBack = findColumnByKeyword(deptData.columns, ['back to analyze count for development', 'development']);
+
+        console.log('Bulunan kolonlar:', { columnO, columnP, columnQ, columnTestBack, columnDevBack });
+
+        // Analiz yap
+        const analysisO = analyzeColumn(deptData.data, columnO);
+        const analysisP = analyzeColumn(deptData.data, columnP);
+        const analysisQ = analyzeReasonsColumn(deptData.data, columnQ);
+        const testBackCount = countNonNullValues(deptData.data, columnTestBack);
+        const devBackCount = countNonNullValues(deptData.data, columnDevBack);
+
+        console.log('Analiz sonuçları:', { analysisO, analysisP, analysisQ, testBackCount, devBackCount });
+
+        // Overview grafikleri oluştur
+        createPieChart('overview-chart-o', 'Format Uygunluk', analysisO, true);
+        createPieChart('overview-chart-p', 'İçerik Olgunluk', analysisP, true);
+        createComparisonChart('overview-chart-comparison', analysisO, analysisP, true);
+        populateReasonsTable(analysisQ);
+
+        // Overview istatistikleri
+        displayStats('overview-stats-o', analysisO);
+        displayStats('overview-stats-p', analysisP);
+
+        // Back to analyze sayılarını göster
+        document.getElementById('overview-test-back-count').textContent = testBackCount;
+        document.getElementById('overview-dev-back-count').textContent = devBackCount;
+
+        // Navigate to report page
+        goToPage(3);
+    }
+
+    function countNonNullValues(data, columnName) {
+        if (!columnName) return 0;
+
+        let count = 0;
+        data.forEach(row => {
+            const value = row[columnName];
+            if (value !== null && value !== undefined && value !== '' && String(value).trim() !== '') {
+                count++;
+            }
+        });
+
+        return count;
+    }
+
+    function findColumnByKeyword(columns, keywords) {
+        // Kolon isimlerinde anahtar kelime ara
+        for (const col of columns) {
+            const colLower = col.toLowerCase();
+            for (const keyword of keywords) {
+                if (colLower.includes(keyword.toLowerCase())) {
+                    return col;
+                }
+            }
+        }
+        return null;
+    }
+
+    function analyzeColumn(data, columnName) {
+        if (!columnName) {
+            console.warn('Kolon adı bulunamadı!');
+            return { uygun: 0, uygunDegil: 0, total: 0, percentage: 0 };
+        }
+
+        let uygun = 0;
+        let uygunDegil = 0;
+        const samples = [];
+
+        data.forEach((row, index) => {
+            const value = row[columnName];
+            if (!value) return;
+
+            const valueLower = String(value).toLowerCase().trim();
+
+            // İlk 5 değeri örnek olarak sakla
+            if (index < 5) {
+                samples.push(valueLower);
+            }
+
+            // "uygun değil" veya "uygunsuz" kontrolü
+            if (valueLower.includes('uygun değil') ||
+                valueLower.includes('uygunsuz') ||
+                valueLower === 'değil' ||
+                valueLower.includes('hayır')) {
+                uygunDegil++;
+            }
+            // Sadece "uygun" kontrolü (değil içermemeli)
+            else if (valueLower.includes('uygun') ||
+                valueLower === 'evet' ||
+                valueLower.includes('var')) {
+                uygun++;
+            }
+        });
+
+        console.log(`${columnName} kolonu örnekleri:`, samples);
+
+        const total = uygun + uygunDegil;
+        const percentage = total > 0 ? ((uygun / total) * 100).toFixed(1) : 0;
+
+        return { uygun, uygunDegil, total, percentage };
+    }
+
+    function analyzeReasonsColumn(data, columnName) {
+        if (!columnName) return {};
+
+        const reasons = {};
+
+        data.forEach(row => {
+            const value = row[columnName];
+            if (!value || String(value).trim() === '') return;
+
+            const reason = String(value).trim();
+            reasons[reason] = (reasons[reason] || 0) + 1;
+        });
+
+        return reasons;
+    }
+
+    function createPieChart(canvasId, title, analysis, isSmall = false) {
+        const ctx = document.getElementById(canvasId);
+        if (!ctx) return;
+
+        // Önceki grafiği temizle
+        const existingChart = Chart.getChart(ctx);
+        if (existingChart) existingChart.destroy();
+
+        new Chart(ctx, {
+            type: 'doughnut',
+            data: {
+                labels: ['Uygun', 'Uygun Değil'],
+                datasets: [{
+                    data: [analysis.uygun, analysis.uygunDegil],
+                    backgroundColor: ['#10b981', '#ef4444'],
+                    borderWidth: 2,
+                    borderColor: '#fff'
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: true,
+                plugins: {
+                    legend: {
+                        position: 'bottom',
+                        labels: {
+                            font: { size: isSmall ? 10 : 14, family: 'Outfit' },
+                            padding: isSmall ? 8 : 15
+                        }
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function (context) {
+                                const label = context.label || '';
+                                const value = context.parsed || 0;
+                                const total = analysis.total;
+                                const percentage = total > 0 ? ((value / total) * 100).toFixed(1) : 0;
+                                return `${label}: ${value} (${percentage}%)`;
+                            }
+                        }
+                    },
+                    datalabels: {
+                        display: false
+                    }
+                }
+            }
+        });
+    }
+
+    function createComparisonChart(canvasId, analysisO, analysisP, isSmall = false) {
+        const ctx = document.getElementById(canvasId);
+        if (!ctx) return;
+
+        const existingChart = Chart.getChart(ctx);
+        if (existingChart) existingChart.destroy();
+
+        new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: ['Analiz Uygunluğu', 'Analiz Olgunluğu'],
+                datasets: [{
+                    label: 'Uygunluk Oranı (%)',
+                    data: [analysisO.percentage, analysisP.percentage],
+                    backgroundColor: ['#10b981', '#10b981'],
+                    borderColor: ['#059669', '#059669'],
+                    borderWidth: 2
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: true,
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        max: 100,
+                        ticks: {
+                            font: { size: isSmall ? 9 : 11 },
+                            callback: function (value) {
+                                return value + '%';
+                            }
+                        }
+                    },
+                    x: {
+                        ticks: {
+                            font: { size: isSmall ? 9 : 11 }
+                        }
+                    }
+                },
+                plugins: {
+                    legend: {
+                        display: false
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function (context) {
+                                return `Uygunluk: ${context.parsed.y}%`;
+                            }
+                        }
+                    },
+                    datalabels: {
+                        display: !isSmall,
+                        anchor: 'center',
+                        align: 'center',
+                        color: 'white',
+                        font: {
+                            size: 18,
+                            weight: 'bold',
+                            family: 'Outfit'
+                        },
+                        formatter: function (value) {
+                            return value + '%';
+                        }
+                    }
+                }
+            },
+            plugins: [ChartDataLabels]
+        });
+    }
+
+    function createReasonsChart(canvasId, reasons, isSmall = false) {
+        const ctx = document.getElementById(canvasId);
+        if (!ctx) return;
+
+        const existingChart = Chart.getChart(ctx);
+        if (existingChart) existingChart.destroy();
+
+        const labels = Object.keys(reasons);
+        const data = Object.values(reasons);
+
+        new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: 'Sebep Sayısı',
+                    data: data,
+                    backgroundColor: '#C70A0C',
+                    borderColor: '#a00a0a',
+                    borderWidth: 2
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: true,
+                indexAxis: 'y',
+                scales: {
+                    x: {
+                        beginAtZero: true,
+                        ticks: {
+                            stepSize: 1,
+                            font: { size: isSmall ? 9 : 11 }
+                        }
+                    },
+                    y: {
+                        ticks: {
+                            font: { size: isSmall ? 9 : 11 }
+                        }
+                    }
+                },
+                plugins: {
+                    legend: {
+                        display: false
+                    },
+                    datalabels: {
+                        display: false
+                    }
+                }
+            }
+        });
+    }
+
+    function populateReasonsTable(reasons) {
+        const tableBody = document.getElementById('reasons-table-body');
+        if (!tableBody) return;
+
+        tableBody.innerHTML = '';
+
+        // Sebepleri sayıya göre sırala (en çoktan en aza)
+        const sortedReasons = Object.entries(reasons).sort((a, b) => b[1] - a[1]);
+
+        sortedReasons.forEach(([reason, count]) => {
+            const row = document.createElement('tr');
+
+            const reasonCell = document.createElement('td');
+            reasonCell.textContent = reason || '(Boş)';
+
+            const countCell = document.createElement('td');
+            countCell.textContent = count;
+
+            row.appendChild(reasonCell);
+            row.appendChild(countCell);
+            tableBody.appendChild(row);
+        });
+
+        // Eğer sebep yoksa
+        if (sortedReasons.length === 0) {
+            const row = document.createElement('tr');
+            const cell = document.createElement('td');
+            cell.colSpan = 2;
+            cell.textContent = 'Uygunsuzluk sebebi bulunamadı';
+            cell.style.textAlign = 'center';
+            cell.style.color = 'var(--text-grey)';
+            row.appendChild(cell);
+            tableBody.appendChild(row);
+        }
+    }
+
+    function displayStats(elementId, analysis) {
+        const statsEl = document.getElementById(elementId);
+        if (!statsEl) return;
+
+        statsEl.innerHTML = `
+            <strong>Toplam:</strong> ${analysis.total} kayıt<br>
+            <strong>Uygun:</strong> ${analysis.uygun} (${analysis.percentage}%)<br>
+            <strong>Uygun Değil:</strong> ${analysis.uygunDegil} (${(100 - analysis.percentage).toFixed(1)}%)
+        `;
+    }
+
+    function displayReasonsStats(elementId, reasons) {
+        const statsEl = document.getElementById(elementId);
+        if (!statsEl) return;
+
+        const reasonCount = Object.keys(reasons).length;
+        const total = Object.values(reasons).reduce((sum, count) => sum + count, 0);
+        statsEl.innerHTML = `<strong>Toplam Sebep Türü:</strong> ${reasonCount}<br><strong>Toplam Kayıt:</strong> ${total}`;
+    }
+
+    function formatBytes(bytes, decimals = 2) {
+        if (bytes === 0) return '0 Bytes';
+        const k = 1024;
+        const dm = decimals < 0 ? 0 : decimals;
+        const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+    }
+});
