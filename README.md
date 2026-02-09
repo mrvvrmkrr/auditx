@@ -11,7 +11,6 @@ AuditX, Excel formatındaki denetim verilerini analiz eden ve görselleştiren m
     - Analiz İçeriği Olgunluk (Pie Chart)
     - Karşılaştırmalı Analiz (Bar Chart)
 - **Hata Analizi:** Uygunsuzluk sebeplerinin sayısal dökümü ve metriklendirilmesi.
-- **Modern Arayüz:** Karanlık/Aydınlık uyumlu, "Levitating Sidebar" tasarımlı premium kullanıcı deneyimi.
 
 ## 🛠️ Kullanılan Teknolojiler
 
